@@ -45,6 +45,34 @@ public final class SignedSecureFileOutputStream extends OutputStream {
     private ByteArrayOutputStream m_encryptedDataBuffer = null;
     private int m_datasize = 0;
 
+
+    public SignedSecureFileOutputStream(@NotNull OutputStream outputStream, @NotNull Key asymmetricKey, String secretKey) throws IOException, InvalidKeyException {
+        m_header = new Header(cipherProvider);
+        m_stream = outputStream;
+        m_header.headerCipherAlgorithm = HeaderCipherAlgorithm.findByName(asymmetricKey.getAlgorithm());
+
+        m_header.initEncrypt(asymmetricKey);
+
+        try {
+            SecretKey dataKey;
+            byte[] bytesDataKey;
+            SecretKeySpec signingKey = new SecretKeySpec(secretKey.getBytes(), HMAC_SHA256_ALGORITHM);
+            Mac mac = Mac.getInstance(HMAC_SHA256_ALGORITHM);
+            mac.init(signingKey);
+            m_dataHmac = mac;
+            bytesDataKey = mac.doFinal(m_header.secureHeader.generateKey());
+            dataKey = new SecretKeySpec(bytesDataKey, m_header.dataCipherAlgorithm.getAlgoName().split("/")[0]);
+            m_dataCipher = Cipher.getInstance(m_header.dataCipherAlgorithm.getAlgoName());
+            m_dataCipher.init(Cipher.ENCRYPT_MODE, dataKey, new IvParameterSpec(Header.DATA_IV));
+        } catch (NoSuchAlgorithmException | NoSuchPaddingException | InvalidAlgorithmParameterException e) {
+            throw new IOException("Invalid internal error");
+        } catch (java.security.InvalidKeyException e) {
+            throw new InvalidKeyException();
+        }
+
+        m_encryptedDataBuffer = new ByteArrayOutputStream();
+    }
+
     public SignedSecureFileOutputStream(@NotNull OutputStream outputStream, @NotNull Key asymmetricKey, HeaderCipherAlgorithm headerCipherAlgorithm, String secretKey) throws IOException, InvalidKeyException {
         m_header = new Header(cipherProvider);
         m_stream = outputStream;
