@@ -18,14 +18,18 @@
 package kr.jclab.javautils.signedsecurefile;
 
 public enum HeaderCipherAlgorithm {
-    NONE((byte)0, null), RSA((byte)1, "RSA");
+    NONE((byte)0, null, null),
+    RSA((byte)1, "RSA", "RSA"),
+    EC((byte)2, "EC", null);
 
     final private byte value;
     final private String algoName;
+    final private String cipherName;
 
-    HeaderCipherAlgorithm(byte value, String algoName) {
+    HeaderCipherAlgorithm(byte value, String algoName, String cipherName) {
         this.value = value;
         this.algoName = algoName;
+        this.cipherName = cipherName;
     }
 
     public final byte getValue() {
@@ -34,5 +38,17 @@ public enum HeaderCipherAlgorithm {
 
     public final String getAlgoName() {
         return this.algoName;
+    }
+
+    public String getCipherName() {
+        return cipherName;
+    }
+
+    public static HeaderCipherAlgorithm findByName(String name) {
+        for(HeaderCipherAlgorithm item : values()) {
+            if(name.equalsIgnoreCase(item.getAlgoName()))
+                return item;
+        }
+        return null;
     }
 }

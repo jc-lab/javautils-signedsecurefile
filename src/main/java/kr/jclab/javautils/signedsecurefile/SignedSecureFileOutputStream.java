@@ -17,6 +17,8 @@
 
 package kr.jclab.javautils.signedsecurefile;
 
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
+
 import javax.validation.constraints.NotNull;
 
 import javax.crypto.*;
@@ -31,12 +33,12 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 
 public final class SignedSecureFileOutputStream extends OutputStream {
+    private final BouncyCastleProvider cipherProvider = new BouncyCastleProvider();
     private final String HMAC_SHA256_ALGORITHM = "HmacSHA256";
 
     private Header m_header = null;
     private OutputStream m_stream = null;
     private boolean m_isSaved = false;
-    private Cipher m_headerCipher = null;
 
     private Cipher m_dataCipher = null;
     private Mac m_dataHmac = null;
@@ -44,10 +46,11 @@ public final class SignedSecureFileOutputStream extends OutputStream {
     private int m_datasize = 0;
 
     public SignedSecureFileOutputStream(@NotNull OutputStream outputStream, @NotNull Key asymmetricKey, HeaderCipherAlgorithm headerCipherAlgorithm, String secretKey) throws IOException, InvalidKeyException {
-        SecureRandom random = new SecureRandom();
-        m_header = new Header();
+        m_header = new Header(cipherProvider);
         m_stream = outputStream;
         m_header.headerCipherAlgorithm = headerCipherAlgorithm;
+
+        m_header.initEncrypt(asymmetricKey);
 
         try {
             SecretKey dataKey;
@@ -56,15 +59,12 @@ public final class SignedSecureFileOutputStream extends OutputStream {
             Mac mac = Mac.getInstance(HMAC_SHA256_ALGORITHM);
             mac.init(signingKey);
             m_dataHmac = mac;
-            m_headerCipher = Cipher.getInstance(m_header.headerCipherAlgorithm.getAlgoName());
-            m_headerCipher.init(Cipher.ENCRYPT_MODE, asymmetricKey);
-            m_header.keySize = m_headerCipher.getOutputSize(1) * 8;
             bytesDataKey = mac.doFinal(m_header.secureHeader.generateKey());
             dataKey = new SecretKeySpec(bytesDataKey, m_header.dataCipherAlgorithm.getAlgoName().split("/")[0]);
             m_dataCipher = Cipher.getInstance(m_header.dataCipherAlgorithm.getAlgoName());
             m_dataCipher.init(Cipher.ENCRYPT_MODE, dataKey, new IvParameterSpec(Header.DATA_IV));
         } catch (NoSuchAlgorithmException | NoSuchPaddingException | InvalidAlgorithmParameterException e) {
-            throw new IOException("Invalid interal error");
+            throw new IOException("Invalid internal error");
         } catch (java.security.InvalidKeyException e) {
             throw new InvalidKeyException();
         }
@@ -85,7 +85,7 @@ public final class SignedSecureFileOutputStream extends OutputStream {
         }
 
         m_header.secureHeader.setting(m_dataHmac.doFinal(), m_datasize);
-        m_header.writeHeader(m_stream, m_headerCipher);
+        m_header.writeHeader(m_stream);
         m_encryptedDataBuffer.writeTo(m_stream);
 
         m_isSaved = true;
