@@ -17,11 +17,6 @@
 
 package kr.jclab.javautils.signedsecurefile;
 
-import org.bouncycastle.crypto.params.ECKeyParameters;
-import org.bouncycastle.jce.ECKeyUtil;
-import org.bouncycastle.jce.provider.BouncyCastleProvider;
-import sun.security.ec.ECKeyFactory;
-
 import javax.crypto.*;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
@@ -31,7 +26,6 @@ import java.io.OutputStream;
 import java.security.*;
 import java.security.interfaces.ECKey;
 import java.security.interfaces.RSAKey;
-import java.security.spec.ECPrivateKeySpec;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.Arrays;
@@ -43,7 +37,7 @@ class Header {
 
     private static final int COMMON_HEADER_SIZE = 32;
     private static final int SECURE_HEADER_SIZE = 84;
-    public static final int VERSION = 1;
+    public static final int VERSION = 2;
     private static final byte[] SIGNATURE = {(byte)0x0a, (byte)0x9b, (byte)0xd8, (byte)0x13, (byte)0x97, (byte)0x1f, (byte)0x93, (byte)0xe8, (byte)0x6b, (byte)0x7e, (byte)0xdf, (byte)0x05, (byte)0x70, (byte)0x54, (byte)0x02};
 
     public byte[] signature = Arrays.copyOf(SIGNATURE, SIGNATURE.length); // 15 bytes
@@ -154,9 +148,6 @@ class Header {
         if(!Arrays.equals(SIGNATURE, this.signature))
             throw new InvalidFileException();
 
-        if(this.version != VERSION)
-            throw new InvalidFileException("Version mismatch");
-
         this.headerCipherAlgorithm = HeaderCipherAlgorithm.NONE;
         for (HeaderCipherAlgorithm value : HeaderCipherAlgorithm.values()) {
             if(value.getValue() == buffer[16])
@@ -164,9 +155,11 @@ class Header {
                 this.headerCipherAlgorithm = value;
             }
         }
-        if(this.dataCipherAlgorithm == DataCipherAlgorithm.NONE) {
+        if(this.headerCipherAlgorithm == HeaderCipherAlgorithm.NONE) {
             throw new InvalidFileException();
         }
+        if(this.version > VERSION)
+            throw new InvalidFileException("Version mismatch");
         this.dataCipherAlgorithm = DataCipherAlgorithm.NONE;
         for (DataCipherAlgorithm value : DataCipherAlgorithm.values()) {
             if(value.getValue() == buffer[17])
