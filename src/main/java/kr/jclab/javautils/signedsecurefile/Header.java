@@ -79,8 +79,8 @@ class Header {
                 KeyAgreement ka = KeyAgreement.getInstance("ECDH");
                 ka.init(asymmetricKey);
                 ka.doPhase(kp.getPublic(), true);
-
-                this.headerCipher = createHeaderCipherWithSharedKey(ka.generateSecret(), Cipher.ENCRYPT_MODE);
+                byte[] encKey = MessageDigest.getInstance("SHA-256").digest(ka.generateSecret());
+                this.headerCipher = createHeaderCipherWithSharedKey(encKey, Cipher.ENCRYPT_MODE);
 
                 byte[] encodedKey = kp.getPrivate().getEncoded();
                 this.signedSecureHeaderPrefix = new byte[encodedKey.length + 2];
@@ -119,7 +119,8 @@ class Header {
             KeyAgreement ka = KeyAgreement.getInstance("ECDH");
             ka.init(privateKey);
             ka.doPhase(asymmetricKey, true);
-            this.headerCipher = createHeaderCipherWithSharedKey(ka.generateSecret(), Cipher.DECRYPT_MODE);
+            byte[] encKey = MessageDigest.getInstance("SHA-256").digest(ka.generateSecret());
+            this.headerCipher = createHeaderCipherWithSharedKey(encKey, Cipher.DECRYPT_MODE);
             decodedSecureHeader = this.headerCipher.doFinal(buffer, 2 + encodedKeySize, buffer.length - 2 - encodedKeySize);
         }else{
             Cipher headerCipher = Cipher.getInstance(this.headerCipherAlgorithm.getCipherName(), this.cipherProvider);
