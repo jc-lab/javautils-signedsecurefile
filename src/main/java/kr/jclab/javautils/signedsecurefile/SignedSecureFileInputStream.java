@@ -39,7 +39,19 @@ public final class SignedSecureFileInputStream extends InputStream {
     private InputStream m_stream = null;
     private ByteBuffer m_dataBuffer = null;
 
-    public SignedSecureFileInputStream(@NotNull InputStream inputStream, @NotNull Key asymmetricKey, String secretKey) throws IOException, NoSuchAlgorithmException, InvalidKeyException {
+    private final static char[] hexArray = "0123456789ABCDEF".toCharArray();
+    public static String bytesToHex(byte[] bytes) {
+        StringBuilder stringBuilder = new StringBuilder();
+        for ( int j = 0; j < bytes.length; j++ ) {
+            int v = bytes[j] & (byte)0xFF;
+            if(stringBuilder.length() > 0)
+                stringBuilder.append(" ");
+            stringBuilder.append(hexArray[(v >>> 4) & 0xf]);
+            stringBuilder.append(hexArray[v & 0xf]);
+        }
+        return stringBuilder.toString();
+    }
+    public SignedSecureFileInputStream(@NotNull InputStream inputStream, @NotNull Key asymmetricKey, String secretKey) throws IOException, NoSuchAlgorithmException, InvalidKeyException, IntegrityException {
         Cipher dataCipher;
         SecretKey dataKey;
         Header header = new Header(cipherProvider);

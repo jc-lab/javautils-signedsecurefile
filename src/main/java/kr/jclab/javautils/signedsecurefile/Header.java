@@ -53,6 +53,7 @@ class Header {
 
     private byte[] signedSecureHeaderPrefix = null;
     private Cipher headerCipher = null;
+    private Signature secureHeaderSignature = null;
 
     public Header(Provider cipherProvider) {
         this.cipherProvider = cipherProvider;
@@ -83,11 +84,14 @@ class Header {
                 this.headerCipher = createHeaderCipherWithSharedKey(encKey, Cipher.ENCRYPT_MODE);
 
                 byte[] encodedKey = kp.getPrivate().getEncoded();
-                this.signedSecureHeaderPrefix = new byte[encodedKey.length + 2];
+                this.signedSecureHeaderPrefix = new byte[encodedKey.length + 3];
 
                 this.signedSecureHeaderPrefix[0] = (byte)((encodedKey.length >> 0) & 0xFF);
                 this.signedSecureHeaderPrefix[1] = (byte)((encodedKey.length >> 8) & 0xFF);
-                System.arraycopy(encodedKey, 0, this.signedSecureHeaderPrefix, 2, encodedKey.length);
+                System.arraycopy(encodedKey, 0, this.signedSecureHeaderPrefix, 3, encodedKey.length);
+
+                secureHeaderSignature = Signature.getInstance("SHA1withECDSA", cipherProvider);
+                secureHeaderSignature.initSign((PrivateKey)asymmetricKey);
             }else{
                 if(asymmetricKey instanceof RSAKey) {
                     RSAKey rsaKey = (RSAKey)asymmetricKey;
@@ -100,11 +104,12 @@ class Header {
                 headerCipher.init(Cipher.ENCRYPT_MODE, asymmetricKey);
             }
         } catch (NoSuchAlgorithmException | java.security.InvalidKeyException | InvalidAlgorithmParameterException | NoSuchPaddingException e) {
+            e.printStackTrace();
             throw new IOException("Invalid internal error");
         }
     }
 
-    public byte[] decryptSignedSecureHeader(Key asymmetricKey, byte[] buffer) throws NoSuchPaddingException, NoSuchAlgorithmException, java.security.InvalidKeyException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException, InvalidKeySpecException, InvalidAlgorithmParameterException {
+    public byte[] decryptSignedSecureHeader(Key asymmetricKey, byte[] buffer) throws NoSuchPaddingException, NoSuchAlgorithmException, java.security.InvalidKeyException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException, InvalidKeySpecException, InvalidAlgorithmParameterException, SignatureException, IntegrityException {
         byte[] decodedSecureHeader = null;
         if(this.headerCipherAlgorithm == HeaderCipherAlgorithm.EC)
         {
@@ -113,17 +118,26 @@ class Header {
                             ((((short)buffer[1]) & 0xFF) << 8)
                     );
             byte[] encodedKeyBytes = new byte[encodedKeySize];
-            System.arraycopy(buffer, 2, encodedKeyBytes, 0, encodedKeySize);
+            byte[] signHeader = new byte[buffer[2]];
+            int encHeaderPos = 3 + encodedKeySize + buffer[2];
+            System.arraycopy(buffer, 3, encodedKeyBytes, 0, encodedKeySize);
+            System.arraycopy(buffer, 3 + encodedKeySize, signHeader, 0, buffer[2]);
             KeyFactory kf = KeyFactory.getInstance("EC", this.cipherProvider);
             PrivateKey privateKey = kf.generatePrivate(new PKCS8EncodedKeySpec(encodedKeyBytes));
-            KeyAgreement ka = KeyAgreement.getInstance("ECDH");
+            KeyAgreement ka = KeyAgreement.getInstance("ECDH", this.cipherProvider);
+            Signature signature = Signature.getInstance("SHA1withECDSA", this.cipherProvider);
+            signature.initVerify((PublicKey)asymmetricKey);
             ka.init(privateKey);
             ka.doPhase(asymmetricKey, true);
             byte[] encKey = MessageDigest.getInstance("SHA-256").digest(ka.generateSecret());
             this.headerCipher = createHeaderCipherWithSharedKey(encKey, Cipher.DECRYPT_MODE);
-            decodedSecureHeader = this.headerCipher.doFinal(buffer, 2 + encodedKeySize, buffer.length - 2 - encodedKeySize);
+            decodedSecureHeader = this.headerCipher.doFinal(buffer, encHeaderPos, buffer.length - encHeaderPos);
+            signature.update(decodedSecureHeader);
+            if(!signature.verify(signHeader)) {
+                throw new IntegrityException();
+            }
         }else{
-            Cipher headerCipher = Cipher.getInstance(this.headerCipherAlgorithm.getCipherName(), this.cipherProvider);
+            Cipher headerCipher = Cipher.getInstance(this.headerCipherAlgorithm.getCipherName());
             if(asymmetricKey instanceof PublicKey) {
                 headerCipher.init(Cipher.DECRYPT_MODE, (PublicKey)asymmetricKey);
                 decodedSecureHeader = headerCipher.doFinal(buffer);
@@ -137,7 +151,20 @@ class Header {
         return decodedSecureHeader;
     }
 
-    public void readHeader(InputStream inputStream, Key asymmetricKey) throws IOException, NoSuchAlgorithmException, InvalidKeyException {
+    private final static char[] hexArray = "0123456789ABCDEF".toCharArray();
+    public static String bytesToHex(byte[] bytes) {
+        StringBuilder stringBuilder = new StringBuilder();
+        for ( int j = 0; j < bytes.length; j++ ) {
+            int v = bytes[j] & 0xFF;
+            if(stringBuilder.length() > 0)
+                stringBuilder.append(",");
+            stringBuilder.append("0x");
+            stringBuilder.append(hexArray[v >>> 4]);
+            stringBuilder.append(hexArray[v & 0xf]);
+        }
+        return stringBuilder.toString();
+    }
+    public void readHeader(InputStream inputStream, Key asymmetricKey) throws IOException, NoSuchAlgorithmException, InvalidKeyException, IntegrityException {
         byte[] buffer;
         if(inputStream.available() < COMMON_HEADER_SIZE)
             throw new InvalidFileException();
@@ -197,21 +224,29 @@ class Header {
         } catch (java.security.InvalidKeyException e) {
             throw new InvalidKeyException();
         } catch (BadPaddingException e) {
-            e.printStackTrace();;
             throw new InvalidFileException();
         } catch (IllegalBlockSizeException e) {
+            e.printStackTrace();;
             throw new NoSuchAlgorithmException();
         } catch (InvalidKeySpecException e) {
+            e.printStackTrace();
             throw new NoSuchAlgorithmException();
         } catch (InvalidAlgorithmParameterException e) {
             throw new NoSuchAlgorithmException();
+        } catch (SignatureException e) {
+            e.printStackTrace();
         }
     }
 
     public void writeHeader(OutputStream outputStream) throws IOException {
-        byte[] signedSecureHeader = null;
-        byte[] encHeader;
+        byte[] signedSecureHeader;
+        int signedSecureHeaderSize;
+        byte[] encHeader = null;
+        byte[] signHeader = null;
+        byte[] secureHeaderPayload;
+        int pos = 0;
         try {
+            secureHeaderPayload = secureHeader.makePayload();
             encHeader = headerCipher.doFinal(secureHeader.makePayload());
         } catch (ArrayIndexOutOfBoundsException e) {
             throw new IOException(e.getMessage());
@@ -219,13 +254,34 @@ class Header {
             throw new IOException("Invalid internal error");
         }
 
-        if(this.signedSecureHeaderPrefix != null) {
-            signedSecureHeader = new byte[signedSecureHeaderPrefix.length + encHeader.length];
-            System.arraycopy(this.signedSecureHeaderPrefix, 0, signedSecureHeader, 0, signedSecureHeaderPrefix.length);
-            System.arraycopy(encHeader, 0, signedSecureHeader, signedSecureHeaderPrefix.length, encHeader.length);
-        }else{
-            signedSecureHeader = encHeader;
+        if(this.headerCipherAlgorithm == HeaderCipherAlgorithm.EC)
+        {
+            try {
+                secureHeaderSignature.update(secureHeaderPayload);
+                signHeader = secureHeaderSignature.sign();
+                signedSecureHeaderPrefix[2] = (byte)((signHeader.length >> 0) & 0xFF);
+            } catch (SignatureException e) {
+                throw new IOException("Invalid internal error");
+            }
         }
+
+        signedSecureHeaderSize = encHeader.length;
+        if(this.signedSecureHeaderPrefix != null)
+            signedSecureHeaderSize += this.signedSecureHeaderPrefix.length;
+        if(signHeader != null)
+            signedSecureHeaderSize += signHeader.length;
+
+        signedSecureHeader = new byte[signedSecureHeaderSize];
+        if(this.signedSecureHeaderPrefix != null) {
+            System.arraycopy(this.signedSecureHeaderPrefix, 0, signedSecureHeader, pos, signedSecureHeaderPrefix.length);
+            pos += signedSecureHeaderPrefix.length;
+        }
+        if(signHeader != null)  {
+            System.arraycopy(signHeader, 0, signedSecureHeader, pos, signHeader.length);
+            pos += signHeader.length;
+        }
+
+        System.arraycopy(encHeader, 0, signedSecureHeader, pos, encHeader.length);
 
         byte[] headerBuffer = new byte[COMMON_HEADER_SIZE];
         this.signedSecureHeaderSize = (short)signedSecureHeader.length;

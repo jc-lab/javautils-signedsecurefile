@@ -19,8 +19,9 @@ package kr.jclab.javautils.signedsecurefile;
 
 public enum HeaderCipherAlgorithm {
     NONE((byte)0, null, null),
-    RSA((byte)1, "RSA", "RSA"),
-    EC((byte)2, "EC", null);
+    V1_RSA((byte)1, "v1_RSA", "RSA"),
+    EC((byte)2, "EC", null),
+    RSA((byte)3, "RSA", "RSA/ECB/PKCS1Padding");
 
     final private byte value;
     final private String algoName;
