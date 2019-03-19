@@ -226,15 +226,13 @@ class Header {
         } catch (BadPaddingException e) {
             throw new InvalidFileException();
         } catch (IllegalBlockSizeException e) {
-            e.printStackTrace();;
             throw new NoSuchAlgorithmException();
         } catch (InvalidKeySpecException e) {
-            e.printStackTrace();
             throw new NoSuchAlgorithmException();
         } catch (InvalidAlgorithmParameterException e) {
             throw new NoSuchAlgorithmException();
         } catch (SignatureException e) {
-            e.printStackTrace();
+            throw new IntegrityException();
         }
     }
 
