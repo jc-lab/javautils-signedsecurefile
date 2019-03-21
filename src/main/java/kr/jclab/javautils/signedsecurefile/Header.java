@@ -90,7 +90,7 @@ class Header {
                 this.signedSecureHeaderPrefix[1] = (byte)((encodedKey.length >> 8) & 0xFF);
                 System.arraycopy(encodedKey, 0, this.signedSecureHeaderPrefix, 3, encodedKey.length);
 
-                secureHeaderSignature = Signature.getInstance("SHA1withECDSA", cipherProvider);
+                secureHeaderSignature = Signature.getInstance("SHA256withECDSA", cipherProvider);
                 secureHeaderSignature.initSign((PrivateKey)asymmetricKey);
             }else{
                 if(asymmetricKey instanceof RSAKey) {
@@ -125,7 +125,7 @@ class Header {
             KeyFactory kf = KeyFactory.getInstance("EC", this.cipherProvider);
             PrivateKey privateKey = kf.generatePrivate(new PKCS8EncodedKeySpec(encodedKeyBytes));
             KeyAgreement ka = KeyAgreement.getInstance("ECDH", this.cipherProvider);
-            Signature signature = Signature.getInstance("SHA1withECDSA", this.cipherProvider);
+            Signature signature = Signature.getInstance("SHA256withECDSA", this.cipherProvider);
             signature.initVerify((PublicKey)asymmetricKey);
             ka.init(privateKey);
             ka.doPhase(asymmetricKey, true);
